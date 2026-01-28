@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <title>8 Ball Pool – enkel versjon</title>
+    <style>
+        body {
+            margin: 0;
+            background: #222;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+
+        #gameContainer {
+            text-align: center;
+        }
+
+        canvas {
+            background: #0b5a2b;
+            border: 10px solid #5b3a1a;
+            border-radius: 15px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        #info {
+            margin-top: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+<div id="gameContainer">
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div id="info">Klikk og dra fra køballen for å skyte. Slipp for å støte.</div>
+</div>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const tablePadding = 30;
+    const ballRadius = 10;
+    const friction = 0.99;
+    const minSpeed = 0.05;
+
+    let balls = [];
+    let cueBall;
+    let isAiming = false;
+    let mousePos = { x: 0, y: 0 };
+    let shotStart = null;
+
+    function createBalls() {
+        balls = [];
+
+        // Køball
+        cueBall = {
+            x: canvas.width * 0.25,
+            y: canvas.height / 2,
+            vx: 0,
+            vy: 0,
+            radius: ballRadius,
+            color: "white",
+            isCue: true
+        };
+        balls.push(cueBall);
+
+        // Trekant med baller (som 8-ball-stil)
+        const startX = canvas.width * 0.65;
+        const startY = canvas.height / 2;
+        const colors = ["yellow", "blue", "red", "purple", "orange", "green", "brown", "black"];
+        let colorIndex = 0;
+        let rows = 5;
+        let spacing = ballRadius * 2 + 2;
+
+        let index = 0;
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col <= row; col++) {
+                const x = startX + row * spacing;
+                const y = startY - row * spacing / 2 + col * spacing;
+                balls.push({
+                    x,
+                    y,
+                    vx: 0,
+                    vy: 0,
+                    radius: ballRadius,
+                    color: colors[colorIndex % colors.length],
+                    isCue: false
+                });
+                colorIndex++;
+                index++;
+            }
+        }
+    }
+
+    function drawTable() {
+        // Bord (grønt er allerede bakgrunn)
+        // Tegn "puter" (mørkere kanter)
+        ctx.fillStyle = "#06401c";
+        ctx.fillRect(tablePadding, tablePadding,
+            canvas.width - tablePadding * 2,
+            canvas.height - tablePadding * 2);
+    }
+
+    function drawBalls() {
+        balls.forEach(ball => {
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = ball.color;
+            ctx.fill();
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        });
+    }
+
+    function updateBalls() {
+        balls.forEach(ball => {
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Friksjon
+            ball.vx *= friction;
+            ball.vy *= friction;
+
+            if (Math.abs(ball.vx) < minSpeed) ball.vx = 0;
+            if (Math.abs(ball.vy) < minSpeed) ball.vy = 0;
+
+            // Kollisjon med vegger
+            const left = tablePadding + ball.radius;
+            const right = canvas.width - tablePadding - ball.radius;
+            const top = tablePadding + ball.radius;
+            const bottom = canvas.height - tablePadding - ball.radius;
+
+            if (ball.x < left) {
+                ball.x = left;
+                ball.vx *= -1;
+            }
+            if (ball.x > right) {
+                ball.x = right;
+                ball.vx *= -1;
+            }
+            if (ball.y < top) {
+                ball.y = top;
+                ball.vy *= -1;
+            }
+            if (ball.y > bottom) {
+                ball.y = bottom;
+                ball.vy *= -1;
+            }
+        });
+
+        // Kollisjon mellom baller
+        for (let i = 0; i < balls.length; i++) {
+            for (let j = i + 1; j < balls.length; j++) {
+                resolveBallCollision(balls[i], balls[j]);
+            }
+        }
+    }
+
+    function resolveBallCollision(b1, b2) {
+        const dx = b2.x - b1.x;
+        const dy = b2.y - b1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = b1.radius + b2.radius;
+
+        if (dist < minDist && dist > 0) {
+            // Flytt dem fra hverandre
+            const overlap = (minDist - dist) / 2;
+            const nx = dx / dist;
+            const ny = dy / dist;
+
+            b1.x -= nx * overlap;
+            b1.y -= ny * overlap;
+            b2.x += nx * overlap;
+            b2.y += ny * overlap;
+
+            // Enkle elastiske kollisjoner
+            const kx = b1.vx - b2.vx;
+            const ky = b1.vy - b2.vy;
+            const p = 2 * (nx * kx + ny * ky) / 2; // like masser
+
+            b1.vx -= p * nx;
+            b1.vy -= p * ny;
+            b2.vx += p * nx;
+            b2.vy += p * ny;
+        }
+    }
+
+    function allBallsStopped() {
+        return balls.every(b => Math.abs(b.vx) === 0 && Math.abs(b.vy) === 0);
+    }
+
+    function drawAimLine() {
+        if (!isAiming || !allBallsStopped()) return;
+
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(cueBall.x, cueBall.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Vis kraft (jo lengre unna, jo sterkere)
+        const dx = cueBall.x - mousePos.x;
+        const dy = cueBall.y - mousePos.y;
+        const dist = Math.min(Math.sqrt(dx * dx + dy * dy), 150);
+        ctx.fillStyle = "white";
+        ctx.font = "14px Arial";
+        ctx.fillText("Kraft: " + Math.round(dist), cueBall.x, cueBall.y - 20);
+    }
+
+    function shoot() {
+        if (!allBallsStopped()) return;
+        if (!shotStart) return;
+
+        const dx = shotStart.x - mousePos.x;
+        const dy = shotStart.y - mousePos.y;
+        let power = Math.sqrt(dx * dx + dy * dy);
+        if (power < 5) return;
+
+        const maxPower = 150;
+        power = Math.min(power, maxPower);
+
+        const angle = Math.atan2(dy, dx);
+        const speed = power / 10;
+
+        cueBall.vx = Math.cos(angle) * speed;
+        cueBall.vy = Math.sin(angle) * speed;
+    }
+
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawTable();
+        updateBalls();
+        drawBalls();
+        drawAimLine();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    canvas.addEventListener("mousedown", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Bare start sikting hvis du klikker nær køballen og alle baller står stille
+        const dx = x - cueBall.x;
+        const dy = y - cueBall.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= cueBall.radius + 20 && allBallsStopped()) {
+            isAiming = true;
+            shotStart = { x: cueBall.x, y: cueBall.y };
+            mousePos = { x, y };
+        }
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+        if (!isAiming) return;
+        const rect = canvas.getBoundingClientRect();
+        mousePos.x = e.clientX - rect.left;
+        mousePos.y = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener("mouseup", () => {
+        if (isAiming) {
+            shoot();
+        }
+        isAiming = false;
+        shotStart = null;
+    });
+
+    createBalls();
+    gameLoop();
+</script>
+</body>
+</html>
