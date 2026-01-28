@@ -706,3 +706,308 @@ gameLoop();
 
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<title>Tower Defense</title>
+<style>
+    body {
+        margin: 0;
+        background: #222;
+        font-family: Arial, sans-serif;
+        color: white;
+        user-select: none;
+    }
+
+    #ui {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background: rgba(0,0,0,0.5);
+        padding: 15px;
+        border-radius: 10px;
+    }
+
+    .towerBtn {
+        display: block;
+        margin-top: 10px;
+        padding: 10px;
+        background: #444;
+        border: 2px solid white;
+        cursor: pointer;
+        width: 160px;
+        text-align: left;
+    }
+
+    .towerBtn:hover {
+        background: #666;
+    }
+
+    #waveBtn {
+        margin-top: 15px;
+        padding: 10px;
+        background: #008000;
+        border: 2px solid white;
+        cursor: pointer;
+        width: 160px;
+    }
+
+    #waveBtn:hover {
+        background: #00a000;
+    }
+
+    canvas {
+        display: block;
+        margin: auto;
+        background: #3a7d3a;
+        border: 5px solid #000;
+    }
+</style>
+</head>
+<body>
+
+<div id="ui">
+    <div>Penger: <span id="money">150</span></div>
+    <div>Wave: <span id="wave">0</span></div>
+
+    <button class="towerBtn" onclick="selectTower('basic')">Basic Tower – 50</button>
+    <button class="towerBtn" onclick="selectTower('sniper')">Sniper Tower – 100</button>
+    <button class="towerBtn" onclick="selectTower('rapid')">Rapid Tower – 75</button>
+
+    <button id="waveBtn" onclick="startWave()">Start Wave</button>
+</div>
+
+<canvas id="game" width="900" height="550"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let money = 150;
+let wave = 0;
+let selectedTower = null;
+
+const moneyDisplay = document.getElementById("money");
+const waveDisplay = document.getElementById("wave");
+
+// Sti
+const path = [
+    {x: 0, y: 250},
+    {x: 200, y: 250},
+    {x: 200, y: 100},
+    {x: 600, y: 100},
+    {x: 600, y: 400},
+    {x: 900, y: 400}
+];
+
+// Fiender
+let enemies = [];
+let enemySpeed = 1;
+
+// Tårn
+let towers = [];
+
+// Kuler
+let bullets = [];
+
+// Tårntyper
+const towerTypes = {
+    basic: {cost: 50, range: 120, fireRate: 40, damage: 1, color: "cyan"},
+    sniper: {cost: 100, range: 250, fireRate: 120, damage: 3, color: "purple"},
+    rapid: {cost: 75, range: 100, fireRate: 15, damage: 0.5, color: "yellow"}
+};
+
+function selectTower(type) {
+    if (money >= towerTypes[type].cost) {
+        selectedTower = type;
+    }
+}
+
+// Plassering av tårn
+canvas.addEventListener("click", (e) => {
+    if (!selectedTower) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    towers.push({
+        x, y,
+        ...towerTypes[selectedTower],
+        cooldown: 0
+    });
+
+    money -= towerTypes[selectedTower].cost;
+    moneyDisplay.textContent = money;
+
+    selectedTower = null;
+});
+
+// Waves
+function startWave() {
+    wave++;
+    waveDisplay.textContent = wave;
+
+    let enemyCount = 5 + wave * 2;
+    let hp = 5 + wave * 2;
+
+    let i = 0;
+    let spawn = setInterval(() => {
+        enemies.push({
+            x: path[0].x,
+            y: path[0].y,
+            hp: hp,
+            maxHp: hp,
+            pathIndex: 0
+        });
+
+        i++;
+        if (i >= enemyCount) clearInterval(spawn);
+    }, 800);
+}
+
+// Tegn sti
+function drawPath() {
+    ctx.strokeStyle = "#c2b280";
+    ctx.lineWidth = 50;
+    ctx.lineCap = "round";
+
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let p of path) ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+}
+
+// Oppdater fiender
+function updateEnemies() {
+    enemies.forEach(enemy => {
+        let target = path[enemy.pathIndex + 1];
+        if (!target) return;
+
+        let dx = target.x - enemy.x;
+        let dy = target.y - enemy.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < 2) {
+            enemy.pathIndex++;
+        } else {
+            enemy.x += (dx / dist) * enemySpeed;
+            enemy.y += (dy / dist) * enemySpeed;
+        }
+    });
+
+    enemies.forEach(e => {
+        if (e.hp <= 0) {
+            money += 10;
+            moneyDisplay.textContent = money;
+        }
+    });
+
+    enemies = enemies.filter(e => e.pathIndex < path.length - 1 && e.hp > 0);
+}
+
+// Tegn fiender
+function drawEnemies() {
+    enemies.forEach(e => {
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // HP-bar
+        ctx.fillStyle = "black";
+        ctx.fillRect(e.x - 15, e.y - 25, 30, 5);
+
+        ctx.fillStyle = "lime";
+        ctx.fillRect(e.x - 15, e.y - 25, (e.hp / e.maxHp) * 30, 5);
+    });
+}
+
+// Tegn tårn
+function drawTowers() {
+    towers.forEach(t => {
+        ctx.fillStyle = t.color;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 20, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// Tårn skyter
+function towerShoot() {
+    towers.forEach(t => {
+        t.cooldown--;
+
+        if (t.cooldown > 0) return;
+
+        let target = enemies.find(e => {
+            let dx = e.x - t.x;
+            let dy = e.y - t.y;
+            return Math.sqrt(dx*dx + dy*dy) < t.range;
+        });
+
+        if (target) {
+            bullets.push({
+                x: t.x,
+                y: t.y,
+                target,
+                damage: t.damage
+            });
+
+            t.cooldown = t.fireRate;
+        }
+    });
+}
+
+// Oppdater kuler
+function updateBullets() {
+    bullets.forEach(b => {
+        let dx = b.target.x - b.x;
+        let dy = b.target.y - b.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < 5) {
+            b.target.hp -= b.damage;
+            b.hit = true;
+        } else {
+            b.x += dx / dist * 6;
+            b.y += dy / dist * 6;
+        }
+    });
+
+    bullets = bullets.filter(b => !b.hit);
+}
+
+// Tegn kuler
+function drawBullets() {
+    bullets.forEach(b => {
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// Spill-loop
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawPath();
+    updateEnemies();
+    drawEnemies();
+
+    drawTowers();
+    towerShoot();
+
+    updateBullets();
+    drawBullets();
+
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+
+</body>
+</html>
