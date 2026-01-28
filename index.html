@@ -1011,3 +1011,270 @@ gameLoop();
 
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<title>Tower Defense Fullscreen</title>
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #222;
+        font-family: Arial, sans-serif;
+        color: white;
+    }
+
+    #moneyDisplay, #waveDisplay {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        font-size: 24px;
+        background: rgba(0,0,0,0.4);
+        padding: 10px 15px;
+        border-radius: 10px;
+    }
+
+    #waveDisplay {
+        top: 60px;
+    }
+
+    canvas {
+        display: block;
+    }
+</style>
+</head>
+<body>
+
+<div id="moneyDisplay">Penger: <span id="money">150</span></div>
+<div id="waveDisplay">Wave: <span id="wave">0</span></div>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// Fullscreen canvas
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let money = 150;
+let wave = 0;
+let selectedTower = "basic"; // alltid basic tower
+
+const moneyDisplay = document.getElementById("money");
+const waveDisplay = document.getElementById("wave");
+
+// Sti (skaleres til fullscreen)
+const path = [
+    {x: 0, y: canvas.height * 0.5},
+    {x: canvas.width * 0.25, y: canvas.height * 0.5},
+    {x: canvas.width * 0.25, y: canvas.height * 0.2},
+    {x: canvas.width * 0.7, y: canvas.height * 0.2},
+    {x: canvas.width * 0.7, y: canvas.height * 0.8},
+    {x: canvas.width, y: canvas.height * 0.8}
+];
+
+// Fiender
+let enemies = [];
+let enemySpeed = 1;
+
+// Tårn
+let towers = [];
+
+// Kuler
+let bullets = [];
+
+// Tårntype (kun én for enkelhet)
+const towerTypes = {
+    basic: {cost: 50, range: 150, fireRate: 40, damage: 1, color: "cyan"}
+};
+
+// Plassere tårn
+canvas.addEventListener("click", (e) => {
+    if (money < towerTypes.basic.cost) return;
+
+    towers.push({
+        x: e.clientX,
+        y: e.clientY,
+        ...towerTypes.basic,
+        cooldown: 0
+    });
+
+    money -= towerTypes.basic.cost;
+    moneyDisplay.textContent = money;
+});
+
+// Waves starter automatisk
+function startWave() {
+    wave++;
+    waveDisplay.textContent = wave;
+
+    let enemyCount = 5 + wave * 3;
+    let hp = 5 + wave * 3;
+
+    let i = 0;
+    let spawn = setInterval(() => {
+        enemies.push({
+            x: path[0].x,
+            y: path[0].y,
+            hp: hp,
+            maxHp: hp,
+            pathIndex: 0
+        });
+
+        i++;
+        if (i >= enemyCount) clearInterval(spawn);
+    }, 700);
+}
+
+// Start waves hvert 12. sekund
+setInterval(startWave, 12000);
+startWave();
+
+// Tegn sti
+function drawPath() {
+    ctx.strokeStyle = "#c2b280";
+    ctx.lineWidth = 60;
+    ctx.lineCap = "round";
+
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let p of path) ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+}
+
+// Oppdater fiender
+function updateEnemies() {
+    enemies.forEach(enemy => {
+        let target = path[enemy.pathIndex + 1];
+        if (!target) return;
+
+        let dx = target.x - enemy.x;
+        let dy = target.y - enemy.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < 3) {
+            enemy.pathIndex++;
+        } else {
+            enemy.x += (dx / dist) * enemySpeed;
+            enemy.y += (dy / dist) * enemySpeed;
+        }
+    });
+
+    enemies.forEach(e => {
+        if (e.hp <= 0) {
+            money += 10;
+            moneyDisplay.textContent = money;
+        }
+    });
+
+    enemies = enemies.filter(e => e.pathIndex < path.length - 1 && e.hp > 0);
+}
+
+// Tegn fiender
+function drawEnemies() {
+    enemies.forEach(e => {
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 18, 0, Math.PI * 2);
+        ctx.fill();
+
+        // HP-bar
+        ctx.fillStyle = "black";
+        ctx.fillRect(e.x - 20, e.y - 30, 40, 6);
+
+        ctx.fillStyle = "lime";
+        ctx.fillRect(e.x - 20, e.y - 30, (e.hp / e.maxHp) * 40, 6);
+    });
+}
+
+// Tegn tårn
+function drawTowers() {
+    towers.forEach(t => {
+        ctx.fillStyle = t.color;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 25, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// Tårn skyter
+function towerShoot() {
+    towers.forEach(t => {
+        t.cooldown--;
+
+        if (t.cooldown > 0) return;
+
+        let target = enemies.find(e => {
+            let dx = e.x - t.x;
+            let dy = e.y - t.y;
+            return Math.sqrt(dx*dx + dy*dy) < t.range;
+        });
+
+        if (target) {
+            bullets.push({
+                x: t.x,
+                y: t.y,
+                target,
+                damage: t.damage
+            });
+
+            t.cooldown = t.fireRate;
+        }
+    });
+}
+
+// Oppdater kuler
+function updateBullets() {
+    bullets.forEach(b => {
+        let dx = b.target.x - b.x;
+        let dy = b.target.y - b.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < 5) {
+            b.target.hp -= b.damage;
+            b.hit = true;
+        } else {
+            b.x += dx / dist * 7;
+            b.y += dy / dist * 7;
+        }
+    });
+
+    bullets = bullets.filter(b => !b.hit);
+}
+
+// Tegn kuler
+function drawBullets() {
+    bullets.forEach(b => {
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+// Spill-loop
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawPath();
+    updateEnemies();
+    drawEnemies();
+
+    drawTowers();
+    towerShoot();
+
+    updateBullets();
+    drawBullets();
+
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+
+</body>
+</html>
